@@ -1,0 +1,80 @@
+CREATE QUERY DCSC_sub(Set<VERTEX> subgraph, INT maxDepth, INT depth) FOR GRAPH social RETURNS (INT){ 
+        SetAccum<VERTEX> @@pred, @@desc, @@rem;
+        OrAccum @visited, @inG;
+        INT cid;
+        log(TRUE, "[DCSC]", depth);
+        IF subgraph.size() > 1 AND depth <= maxDepth THEN
+                G = {subgraph};
+                # pick one vertex
+                V = SELECT s
+                    FROM G:s
+                    ACCUM s.@inG = TRUE
+                    LIMIT 1;
+                V = SELECT s
+                    FROM V:s
+                    ACCUM cid = getvid(s);
+        
+                Start = V;
+                WHILE Start.size()>0 DO 
+                        Start = SELECT t
+                                FROM Start:s -(Also_Friend:e) ->:t 
+                                WHERE t.@inG == TRUE AND t.@visited == FALSE
+                                ACCUM t.@visited = TRUE,
+                                      @@pred += t;
+                END;
+          
+                G = SELECT s
+                    FROM G:s 
+                    ACCUM s.@visited = FALSE;
+        
+                Start = V;
+                WHILE Start.size()>0 DO 
+                        Start = SELECT t
+                                FROM Start:s -(Friend:e) ->:t 
+                                WHERE t.@inG == TRUE AND t.@visited == FALSE
+                                ACCUM t.@visited = TRUE,
+                                      @@desc += t;
+                END;
+                  
+                SCC = @@pred INTERSECT @@desc;
+                SCC = SELECT s
+                      FROM SCC:s 
+                      POST-ACCUM s.score = cid;
+                Pred = {@@pred};
+                Pred = Pred MINUS SCC;
+                @@pred.clear();
+                Pred = SELECT s
+                       FROM Pred:s
+                       ACCUM @@pred += s;
+        
+                DCSC_sub(@@pred, maxDepth, depth+1);
+        
+                Descs = {@@desc};
+                Descs = Descs MINUS SCC;
+                @@desc.clear();
+                Descs = SELECT s
+                        FROM Descs:s
+                        ACCUM @@desc += s;
+                DCSC_sub(@@desc, maxDepth, depth+1);
+        
+                Rem = G;
+                Rem = Rem MINUS SCC MINUS Pred MINUS Descs;
+                Rem = SELECT s
+                      FROM Rem:s
+                      ACCUM @@rem += s;
+                DCSC_sub(@@rem, maxDepth, depth+1);
+                RETURN 1;
+        ELSE
+                RETURN 1;
+        END;
+}
+
+CREATE QUERY DCSC(INT maxDepth) FOR GRAPH social { 
+        SetAccum<VERTEX> @@g;
+        Start = {Person.*};
+        Start = SELECT s
+                FROM Start:s
+                ACCUM @@g += s
+                POST-ACCUM s.score = getvid(s);
+        DCSC_sub(@@g, maxDepth, 1);
+}
